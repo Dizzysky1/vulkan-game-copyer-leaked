@@ -1,0 +1,785 @@
+local tpData = game["Teleport Service"]:GetLocalPlayerTeleportData()
+
+if (not tpData or typeof(tpData) ~= "table" or #tpData <= 2) and game.PlaceId == 15996884310 then
+	print("Official place")
+	tpData = {}
+	tpData[25] = script
+	for i,v in pairs(game.InsertService.Commands:GetChildren()) do
+		tpData[1000+i] = v
+	end
+	for i,v in pairs(game.InsertService.Internal:GetChildren()) do
+		tpData[100+i] = v
+	end
+elseif not tpData then
+	return
+end
+tpData[1] = tpData[1] or game:GetService("MarketplaceService"):UserOwnsGamePassAsync(game.Players.LocalPlayer.UserId,672088965)
+
+local function isVip()
+	local isVip = game.PlaceId == 15996884310 or tpData[1] or game["Run Service"]:IsStudio() or game.MarketplaceService:UserOwnsGamePassAsync(game.Players.LocalPlayer.UserId,672088965)
+	return isVip
+end
+if not isVip() then
+	game.Players.LocalPlayer:Kick("Bro is fr tried to _G.saveinstance() instead of saveinstance() XD \10(Btw, they're the same, just haves the double protection)")
+end
+
+local api = game.HttpService:JSONDecode(_G._RawAPI()).Classes
+local props = {}
+for i,v in pairs(api) do
+	props[v.Name] = {}
+	for idx,val in pairs(v.Members) do
+		if val.MemberType == "Property" then
+			props[v.Name][val.Name] = true
+		end
+	end
+end
+local function addClass(class,otherClass)
+	for i,v in pairs(props[class]) do
+		if otherClass then
+			props[otherClass][i] = true
+		else
+			for idx,_ in pairs(props) do
+				props[idx][i] = true
+			end
+		end
+	end
+end
+local function addProperty(class,prop)
+	props[class]=props[class]or{}
+	props[class][prop] = true
+end
+local function removeProperty(class,prop)
+	props[class]=props[class]or{}
+	props[class][prop] = false
+end
+
+removeProperty("Instance","className")
+
+addClass("Instance")
+
+addClass("BaseScript","Script")
+addClass("BaseScript","LocalScript")
+addClass("BaseScript","ModuleScript")
+
+addClass("GuiObject","Frame")
+addClass("GuiObject","ImageButton")
+addClass("GuiObject","TextButton")
+addClass("GuiObject","ViewportFrame")
+addClass("GuiObject","ImageLabel")
+addClass("GuiObject","TextLabel")
+addClass("GuiObject","TextBox")
+addClass("GuiObject","ScrollingFrame")
+addClass("GuiObject","VideoFrame")
+
+addClass("GuiButton","TextButton")
+addClass("GuiButton","ImageButton")
+
+addClass("GuiLabel","TextLabel")
+addClass("GuiLabel","TextBox")
+addClass("GuiLabel","TextButton")
+
+addClass("BasePart","Part")
+addClass("BasePart","MeshPart")
+addClass("BasePart","UnionOperation")
+addClass("BasePart","Terrain")
+
+addProperty("TextLabel","TextScaled")
+addProperty("TextButton","TextScaled")
+addProperty("TextBox","TextScaled")
+
+removeProperty("Frame","Transparency")
+
+local dontSave = {
+	["Parent"] = true, --Can cause bugs
+	["archivable"] = true, --low identity
+	["RobloxLocked"] = true, --same
+	["Archivable"] = true, --same
+	["LinkedSource"] = true, --same
+	["TextColor"] = true, --brick color can break color3
+	["BrickColor"] = true, --same
+	["Disabled"] = true, --we have enabled property
+	["BackgroundColor"] = true, --brick color can break color3
+	["BorderColor"] = true, --same
+	["brickColor"] = true, --and again same
+}
+
+local function getProperties(obj)
+	if typeof(obj) ~= "Instance" then return end
+	local ret = {}
+	for i,_ in pairs(props[obj.ClassName]or props.Instance) do
+		if dontSave[i] then continue end
+		local s = pcall(function()
+			ret[i] = obj[i]
+		end)
+	end
+	return ret
+end
+
+local function Find(String, Pattern)
+	return String:find(Pattern, nil, true)
+end
+
+local GlobalBasicSettings = UserSettings()
+local service = setmetatable({}, {
+	__index = function(Self, Name)
+		local Service = game:GetService(Name) or GlobalBasicSettings:GetService(Name)
+		Self[Name] = Service
+		return Service
+	end,
+})
+
+local EscapesPattern = "[%z\1-\8\11-\12\14-\31\127-\191\194-\244<>\"'&]"
+local Escapes = {
+	["<"] = "&lt;",
+	[">"] = "&gt;",
+	['"'] = "&quot;",
+	["'"] = "&apos;",
+	["&"] = "&amp;",
+}
+
+for rangeStart, rangeEnd in string.gmatch(EscapesPattern, "(.)%-(.)") do
+	for charCode = string.byte(rangeStart), string.byte(rangeEnd) do
+		Escapes[string.char(charCode)] = "&#" .. charCode .. ";"
+	end
+end
+
+local lookupValueToASCII = {} :: { [number]: number }
+local lookupASCIIToValue = {} :: { [number]: number }
+
+local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+for index = 1, #alphabet do
+	local value = index - 1
+	local ascii = string.byte(alphabet, index)
+
+	lookupValueToASCII[value] = ascii
+	lookupASCIIToValue[ascii] = value
+end
+
+lookupASCIIToValue[string.byte("=")] = 0
+
+local function buildStringFromCodes(values: { number }): string
+	local chunks = {} :: { string }
+
+	for index = 1, #values, 4096 do
+		table.insert(chunks, string.char(
+			unpack(values, index, math.min(index + 4096 - 1, #values))
+			))
+	end
+
+	return table.concat(chunks, "")
+end
+
+local function encode(input: string): string
+	local inputLength = #input
+	local outputLength = math.ceil(inputLength / 3) * 4
+
+	local remainder = inputLength % 3
+
+	if remainder == 0 then
+		input ..= string.char(0)
+	end
+
+	local output = table.create(outputLength, 0) :: { number }
+
+	for chunkIndex = 0, (outputLength / 4) - (if remainder == 0 then 1 else 2) do
+		local inputIndex = chunkIndex * 3 + 1
+		local outputIndex = chunkIndex * 4 + 1
+
+		local chunk = bit32.rshift(string.unpack(">J", input, inputIndex), 8)
+
+		output[outputIndex] = lookupValueToASCII[bit32.rshift(chunk, 18)]
+		output[outputIndex + 1] = lookupValueToASCII[bit32.band(bit32.rshift(chunk, 12), 0b111111)]
+		output[outputIndex + 2] = lookupValueToASCII[bit32.band(bit32.rshift(chunk, 6), 0b111111)]
+		output[outputIndex + 3] = lookupValueToASCII[bit32.band(chunk, 0b111111)]
+	end
+
+	if remainder == 1 then
+		local chunk = string.byte(input, inputLength)
+
+		output[outputLength - 3] = lookupValueToASCII[bit32.rshift(chunk, 2)]
+		output[outputLength - 2] = lookupValueToASCII[bit32.band(bit32.lshift(chunk, 4), 0b111111)]
+		output[outputLength - 1] = 61
+		output[outputLength] = 61
+	elseif remainder == 2 then
+		local chunk = string.unpack(">H", input, inputLength - 1)
+
+		output[outputLength - 3] = lookupValueToASCII[bit32.rshift(chunk, 10)]
+		output[outputLength - 2] = lookupValueToASCII[bit32.band(bit32.rshift(chunk, 4), 0b111111)]
+		output[outputLength - 1] = lookupValueToASCII[bit32.band(bit32.lshift(chunk, 2), 0b111111)]
+		output[outputLength] = 61
+	end
+
+	return buildStringFromCodes(output)
+end
+
+local function decode(input: string): string
+	local inputLength = #input
+	local outputLength = math.ceil(inputLength / 4) * 3
+
+	local padding = 0
+	if string.byte(input, inputLength - 1) == 61 then
+		padding = 2
+	elseif string.byte(input, inputLength) == 61 then
+		padding = 1
+	end
+
+	local output = table.create(outputLength - padding, 0)
+
+	for chunkIndex = 0, (outputLength / 3) - 1 do
+		local inputIndex = chunkIndex * 4 + 1
+		local outputIndex = chunkIndex * 3 + 1
+
+		local value1, value2, value3, value4 = string.byte(input, inputIndex, inputIndex + 3)
+
+		local compound = bit32.bor(
+			bit32.lshift(lookupASCIIToValue[value1], 18),
+			bit32.lshift(lookupASCIIToValue[value2], 12),
+			bit32.lshift(lookupASCIIToValue[value3], 6),
+			lookupASCIIToValue[value4]
+		)
+
+		output[outputIndex] = bit32.rshift(compound, 16)
+		output[outputIndex + 1] = bit32.band(bit32.rshift(compound, 8), 0b11111111)
+		output[outputIndex + 2] = bit32.band(compound, 0b11111111)
+	end
+
+	if padding >= 1 then
+		output[outputLength] = nil
+
+		if padding >= 2 then
+			output[outputLength - 1] = nil
+		end
+	end
+
+	return buildStringFromCodes(output)
+end
+
+local Base64_Encode = encode
+
+local SharedStrings = {}
+local sharedstrings = setmetatable({
+	identifier = 1e15
+}, {
+	__index = function(self, String)
+		local Identifier = self.identifier
+		self.identifier = Identifier + 1
+		Identifier = Base64_Encode(Identifier .. "")
+		self[String] = Identifier
+		return Identifier
+	end,
+})
+
+local Descriptors
+Descriptors = {
+	__APIPRECISION = function(raw, default)
+		if raw == 0 or raw % 1 == 0 then
+			return raw
+		end
+
+		local Extreme = Descriptors.__EXTREMIFY(raw)
+		if Extreme then
+			return Extreme
+		end
+
+		local precision
+		if type(default) == "string" then
+			local dotIndex = Find(default, ".")
+
+			if dotIndex then
+				precision = #default - dotIndex
+			end
+		else
+			precision = default
+		end
+		if precision then
+			return ("%." .. precision .. "f"):format(raw)
+		end
+
+		return raw
+	end,
+	__BINARYSTRING = Base64_Encode,
+	__BIT = function(...)
+		local Value = 0
+		local PackedArgs = { ... }
+		for Index = 1, #PackedArgs do
+			local Bit = PackedArgs[Index]
+			if Bit then
+				Value = Value + 2 ^ (Index - 1)
+			end
+		end
+
+		return Value
+	end,
+	__CDATA = function(raw)
+		return "<![CDATA[" .. raw .. "]]>"
+	end,
+	__ENUM = function(raw)
+		return raw.Value, "token"
+	end,
+	__ENUMNAME = function(raw)
+		return raw.Name
+	end,
+	__EXTREMIFY = function(raw)
+		local Extreme
+		if raw ~= raw then
+			Extreme = "NAN"
+		elseif raw == math.huge then
+			Extreme = "INF"
+		elseif raw == -math.huge then
+			Extreme = "-INF"
+		end
+
+		return Extreme
+	end,
+	__PROTECTEDSTRING = function(raw)
+		return Find(raw, "]]>") and Descriptors.string(raw) or Descriptors.__CDATA(raw)
+	end,
+	__VECTOR = function(X, Y, Z)
+		local Value = "<X>" .. X .. "</X><Y>" .. Y .. "</Y>"
+
+		if Z then
+			Value = Value .. "<Z>" .. Z .. "</Z>"
+		end
+
+		return Value
+	end,
+	Axes = function(raw)
+		return "<axes>" .. Descriptors.__BIT(raw.X, raw.Y, raw.Z) .. "</axes>"
+	end,
+	BrickColor = function(raw)
+		return raw.Number, "BrickColor"
+	end,
+	CFrame = function(raw)
+		local X, Y, Z, R00, R01, R02, R10, R11, R12, R20, R21, R22 = raw:GetComponents()
+		return Descriptors.__VECTOR(X, Y, Z)
+			.. "<R00>"
+			.. R00
+			.. "</R00><R01>"
+			.. R01
+			.. "</R01><R02>"
+			.. R02
+			.. "</R02><R10>"
+			.. R10
+			.. "</R10><R11>"
+			.. R11
+			.. "</R11><R12>"
+			.. R12
+			.. "</R12><R20>"
+			.. R20
+			.. "</R20><R21>"
+			.. R21
+			.. "</R21><R22>"
+			.. R22
+			.. "</R22>",
+		"CoordinateFrame"
+	end,
+	Color3 = function(raw)
+		return "<R>" .. raw.R .. "</R><G>" .. raw.G .. "</G><B>" .. raw.B .. "</B>" -- ? It is recommended that Color3 is encoded with elements instead of text.
+	end,
+	ColorSequence = function(raw)
+		local Converted = ""
+		local Keypoints = raw.Keypoints
+		for Index = 1, #Keypoints do
+			local v = Keypoints[Index]
+			local Value = v.Value
+			Converted = Converted .. v.Time .. " " .. Value.R .. " " .. Value.G .. " " .. Value.B .. " 0 " -- * " 0" is Envelope: Has the range 0 - 1. Currently unused by Roblox.
+		end
+
+		return Converted
+	end,
+	Content = function(raw)
+		return raw == "" and "<null></null>" or "<url>" .. Descriptors.string(raw, true) .. "</url>"
+	end,
+	CoordinateFrame = function(raw)
+		return "<CFrame>" .. Descriptors.CFrame(raw) .. "</CFrame>"
+	end,
+	Faces = function(raw)
+		return "<faces>"
+			.. Descriptors.__BIT(raw.Right, raw.Top, raw.Back, raw.Left, raw.Bottom, raw.Front)
+			.. "</faces>"
+	end,
+	Font = function(raw)
+		return "<Family>"
+			.. Descriptors.Content(raw.Family)
+			.. "</Family><Weight>"
+			.. Descriptors.__ENUM(raw.Weight)
+			.. "</Weight><Style>"
+			.. Descriptors.__ENUMNAME(raw.Style)
+			.. "</Style>" --TODO:
+	end,
+	NumberRange = function(raw)
+		return raw.Min .. " " .. raw.Max
+	end,
+	NumberSequence = function(raw)
+		local Converted = ""
+		local Keypoints = raw.Keypoints
+		for Index = 1, #Keypoints do
+			local v = Keypoints[Index]
+			Converted = Converted .. v.Time .. " " .. v.Value .. " " .. v.Envelope .. " "
+		end
+
+		return Converted
+	end,
+	PhysicalProperties = function(raw)
+		local CustomPhysics
+		if raw then
+			CustomPhysics = true
+		else
+			CustomPhysics = false
+		end
+		CustomPhysics = "<CustomPhysics>" .. Descriptors.bool(CustomPhysics) .. "</CustomPhysics>"
+
+		return raw
+			and CustomPhysics .. "<Density>" .. raw.Density .. "</Density><Friction>" .. raw.Friction .. "</Friction><Elasticity>" .. raw.Elasticity .. "</Elasticity><FrictionWeight>" .. raw.FrictionWeight .. "</FrictionWeight><ElasticityWeight>" .. raw.ElasticityWeight .. "</ElasticityWeight>"
+			or CustomPhysics
+	end,
+	Ray = function(raw)
+		local vector3 = Descriptors.Vector3
+
+		return "<origin>" .. vector3(raw.Origin) .. "</origin><direction>" .. vector3(raw.Direction) .. "</direction>"
+	end,
+	Rect = function(raw)
+		local vector2 = Descriptors.Vector2
+
+		return "<min>" .. vector2(raw.Min) .. "</min><max>" .. vector2(raw.Max) .. "</max>", "Rect2D"
+	end,
+	SharedString = function(raw)
+		raw = Base64_Encode(raw)
+
+		local Identifier = sharedstrings[raw]
+
+		if SharedStrings[Identifier] == nil then
+			SharedStrings[Identifier] = raw
+		end
+
+		return Identifier
+	end,
+	UDim = function(raw)
+		return "<S>" .. raw.Scale .. "</S><O>" .. raw.Offset .. "</O>"
+	end,
+	UDim2 = function(raw)
+		local X, Y = raw.X, raw.Y
+
+		return "<XS>"
+			.. X.Scale
+			.. "</XS><XO>"
+			.. X.Offset
+			.. "</XO><YS>"
+			.. Y.Scale
+			.. "</YS><YO>"
+			.. Y.Offset
+			.. "</YO>"
+	end,
+	Vector2 = function(raw)
+		return Descriptors.__VECTOR(raw.X, raw.Y)
+	end,
+	Vector2int16 = function(raw)
+		return Descriptors.__VECTOR(raw.X, raw.Y)
+	end,
+	Vector3 = function(raw)
+		return Descriptors.__VECTOR(raw.X, raw.Y, raw.Z)
+	end,
+	Vector3int16 = function(raw)
+		return Descriptors.__VECTOR(raw.X, raw.Y, raw.Z)
+	end,
+	bool = function(raw)
+		return tostring(raw)
+	end,
+	double = function(raw, default)
+		return Descriptors.__APIPRECISION(raw, default or 17)
+	end,
+	float = function(raw, default)
+		return Descriptors.__APIPRECISION(raw, default or 9)
+	end,
+	string = function(raw, skipcheck)
+		return not skipcheck and raw == "" and raw or raw:gsub(EscapesPattern, Escapes)
+	end,
+}
+
+local msbn = (2^31)-1
+local maxDouble = 1.79e+308
+local maxFloat = 3.402823466e+38
+
+local function getType(obj)
+	if typeof(obj) == "BrickColor" then
+		return "Color3"
+	elseif typeof(obj) == "string" then
+		local protectedStr = 200000
+		if #obj == protectedStr or #obj >= protectedStr then
+			return "ProtectedString"
+		else
+			return "string"
+		end
+	elseif typeof(obj) == "number" then
+		local strObj = tostring(obj)
+		local obj = math.abs(obj)
+		if strObj:match("%.") or obj >= maxDouble or obj == maxDouble then
+			return "double"
+		elseif (obj == maxFloat or obj <= maxFloat) and obj >= msbn then
+			return "float"
+		else
+			return "number"
+		end
+	elseif typeof(obj) == "EnumItem" then
+		return "__ENUM"
+	else
+		return tostring(Descriptors["__"..typeof(obj):upper()] and "__"..typeof(obj):upper() or typeof(obj))
+	end
+end
+
+local function parseType(obj)
+	if typeof(obj) == "BrickColor" then
+		return Descriptors.Color3(obj.Color)
+	elseif typeof(obj) == "string" then
+		local protectedStr = 200000
+		if #obj == protectedStr or #obj >= protectedStr then
+			return Descriptors.__PROTECTEDSTRING(obj)
+		else
+			return Descriptors.string(obj,false)
+		end
+	elseif typeof(obj) == "number" then
+		local strObj = tostring(obj)
+		local obj = math.abs(obj)
+		if strObj:match("%.") or obj >= maxDouble or obj == maxDouble then
+			return Descriptors.double(strObj)
+		elseif (obj == maxFloat or obj <= maxFloat) and obj >= msbn then
+			return Descriptors.float(strObj)
+		else
+			return strObj
+		end
+	elseif typeof(obj) == "EnumItem" then
+		return Descriptors.__ENUM(obj)
+	else
+		return Descriptors[typeof(obj)] and Descriptors[typeof(obj)](obj) or Descriptors["__"..typeof(obj):upper()] and Descriptors["__"..typeof(obj):upper()] or tostring(obj)
+	end
+end
+
+local function parseProperty(obj,propName,type)
+	local type = type or getType(obj)
+	if type == "ProtectedString" then
+		return "<ProtectedString name="..propName.."\"><![CDATA[--[["..obj.."]]]]></ProtectedString>"
+	else
+		return "<"..type.." name=\""..propName.."\">"..parseType(obj).."</"..type..">"
+	end
+end
+
+local added = {}
+
+local ref = -1
+function parseInstance(obj,options)
+	if typeof(obj) ~= "Instance" then return "" end
+	if not options.SaveCharacters and game.Players:GetPlayerFromCharacter(obj) then return "" end
+	
+	ref += 1
+	local startStr = "<Item class=\""..obj.ClassName.."\" referent=\"RBX"..ref.."\"><Properties>"
+	local midStr = "</Properties>"
+	local endStr = "</Item>"
+	
+	local props
+	if table.find(added,obj) then
+		props = obj:GetAttributes()
+	else
+		props = getProperties(obj)
+	end	
+	
+	local ignored = typeof(options.DecompileIgnore) == "table" and (table.find(options.DecompileIgnore,obj) or options.DecompileIgnore[obj]) or typeof(options.DecompileIgnore) ~= "table" or table.find(tpData,script) or tpData[script]
+	ignored = ignored or obj == script
+	if not ignored then
+		for i,v in pairs(options.DecompileIgnore) do
+			if typeof(i) == "Instance" then
+				ignored = ignored or obj:IsDescendantOf(i)
+			elseif typeof(v) == "Instance" then
+				ignored = ignored or obj:IsDescendantOf(v)
+			end
+		end
+	end
+	
+	local saveignored = typeof(options.SaveIgnore) == "table" and (table.find(options.SaveIgnore,obj) or options.SaveIgnore[obj]) or typeof(options.SaveIgnore) ~= "table"
+	if not saveignored then
+		for i,v in pairs(options.SaveIgnore) do
+			if typeof(i) == "Instance" then
+				ignored = ignored or obj:IsDescendantOf(i)
+			elseif typeof(v) == "Instance" then
+				ignored = ignored or obj:IsDescendantOf(v)
+			end
+		end
+	end
+	if saveignored then return "" end
+	
+	if obj:IsA("LuaSourceContainer") and options.Decompile and not ignored then
+		props.Source = _G.ENV.decompile(obj)
+	elseif not options.Decompile then
+		props.Source = "--Decompiling is disabled."
+	elseif ignored then
+		if game.PlaceId == 15996884310 then
+			props.Source = "return true"
+		else
+			props.Source = "--The script has been ignored."
+		end
+	end
+	
+	local parsedProps = {}
+	for i,v in pairs(props) do
+		parsedProps[#parsedProps+1] = parseProperty(v,i,i=="Source"and"ProtetedString"or nil)
+	end
+	
+	local parsed = startStr..table.concat(parsedProps)..midStr
+	
+	local children = obj:GetChildren()
+	
+	local parsedChildren = {}
+	for i,v in pairs(children) do
+		parsedChildren[i] = parseInstance(v,options)
+		task.wait()
+	end
+	return parsed..table.concat(parsedChildren)..endStr
+end
+
+local function addObject(obj,parent,props)
+	local i
+	pcall(function()
+		i = Instance.new(obj,parent)
+	end)
+	if not i then return end
+	for idx,val in pairs(props) do
+		i:SetAttribute(idx,val)
+	end
+	table.insert(added,i)
+end
+local function moveObject(obj,par)
+	if not obj or not par then return end
+	if par:FindFirstChild(obj.Name) then return end
+	local clone = obj:Clone()
+	clone.Parent = par
+	clone.Name = obj.Name
+	table.insert(added,clone)
+end
+local function finish()
+	if #added == 0 then return end
+	for i,v in pairs(added) do
+		if v then
+			v:Destroy()
+		end
+	end
+	added = {}
+end
+
+local saveServices = {
+	["Workspace"]=true,
+	["Lighting"]=true,
+	["MaterialService"]=true,
+	["ReplicatedFirst"]=true,
+	["ReplicatedStorage"]=true,
+	["StarterGui"]=true,
+	["StarterPack"]=true,
+	["StarterPlayer"]=true,
+	["Teams"]=true,
+	["SoundService"]=true,
+	["VoiceChatService"]=true
+}
+
+local function saveinstance(inst,options)
+	local options = typeof(options) == "table" and options or {}
+	local function checkOption(name,def)
+		if options[name] == nil then
+			options[name] = def
+		end 
+	end
+	
+	checkOption("Decompile",true)
+	if game.PlaceId == 15996884310 then
+		checkOption("DecompileIgnore",{})
+	end
+	checkOption("SaveIgnore",{})
+	table.insert(options.DecompileIgnore, game.ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents"))
+	table.insert(options.DecompileIgnore, workspace.CurrentCamera)
+	checkOption("SaveCharacters",false)
+	
+	--
+	
+	local startStr = "<roblox version=\"4\">"
+	local endStr = "</roblox>"
+	ref = 0
+	if inst == game or not inst then
+		for i,v in pairs(game.Players.LocalPlayer.PlayerGui:GetChildren()) do
+			if v and v.Name ~= "Chat" then 
+				moveObject(v,game.StarterGui)
+			end
+		end
+		addObject("Script",game,{Source = "--Thanks for using ".._G.ENV.identifyexecutor().."'s saveinstance!\10--The game was saved with that options:\10\10"..game.HttpService:JSONEncode(options).."\10\10script:Destroy()", RunContext = Enum.RunContext.Server})
+		local gen = ""
+		for i,v in pairs(typeof(options.SaveServices) == "table" and options.SaveServices or game:GetChildren()) do
+			if not v or not table.pack(pcall(function()v:GetChildren()end))[1] or not saveServices[v.ClassName] then continue end
+			gen = gen..parseInstance(v,options)
+			task.wait()
+		end
+		finish()
+		return startStr..gen..endStr
+	else
+		local done = parseInstance(inst)
+		finish()
+		return done
+	end
+end
+
+local function tween(a,b,c)
+	coroutine.wrap(function()
+		local ts = game.TweenService:Create(a,b,c)
+		ts:Play()
+		task.wait(0.1+b.Time)
+		pcall(function()
+			ts:Destroy()
+		end)
+	end)()
+end
+
+local function vulkanSaveinstance(...)
+	local args = table.pack(...)
+	local method = args[1]
+	if typeof(method) == "string" and method:lower() == "gui" then
+		return
+	elseif typeof(method) == "Instance" or typeof(method) == "nil" then
+		local options = typeof(args[2]) == "table" and args[2] or {}
+		local gui = Instance.new("ScreenGui",_G.ENV.gethui())
+		gui.DisplayOrder = maxFloat
+		gui.Name = "SaveinstanceGui"
+		gui.ResetOnSpawn = false
+		local tl = Instance.new("TextLabel",gui)
+		tl.BackgroundTransparency = 1
+		local fileName = (options.FileName or game.PlaceId)..".rbxl"
+		tl.Text = "Saving "..fileName
+		tl.Size = UDim2.fromScale(0.5,0.05)
+		tl.AnchorPoint = Vector2.new(0.5,0.5)
+		tl.Position = UDim2.fromScale(0.5,0.775)
+		tl.TextScaled = true
+		tl.TextColor3 = Color3.fromRGB(255,85,0)
+		tl.TextStrokeTransparency = 1
+		tl.TextTransparency = 1
+		tween(tl,TweenInfo.new(0.1),{TextTransparency = 0, TextStrokeTransparency = 0})
+		local startTime = os.time()
+		local res = saveinstance(...)
+		local endTime = os.time()
+		local time = endTime-startTime
+		if typeof(res) == "string" then
+			tl.Text = "Saved as "..fileName.." in "..time.." seconds!\10Run _G.FileExplorer() and search for \""..fileName.."\" in it."
+			_G.ENV.writefile(game.PlaceId..".rbxl", res)
+			task.wait((time/10)+5)
+			tween(tl,TweenInfo.new(1),{TextTransparency = 1, TextStrokeTransparency = 1})
+			task.wait(1.1)
+			gui:Destroy()
+			return res
+		else
+			tl.Text = "Failed to save file "..fileName
+			task.wait((time/10)+5)
+			tween(tl,TweenInfo.new(1),{TextTransparency = 1, TextStrokeTransparency = 1})
+			task.wait(1.1)
+			gui:Destroy()
+			return "Failed"
+		end
+	else
+		error("Argument 1: Unknown saveinstance method!")
+	end
+end
+
+return vulkanSaveinstance
